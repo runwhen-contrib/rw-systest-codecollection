@@ -74,54 +74,54 @@ Suite Initialization
 Run E2E RunSession in `${WORKSPACE_NAME}` 
     [Documentation]    Creates a RunSession in the validation workspace, 
     [Tags]             systest    runsession
-    ${runsession}=    RW.Systest.Create New RunSession From Query
-    ...workspace=${WORKSPACE}
-    ...query=${QUERY}
-    ...rw_api_url=${RW_API_URL}
-    ...api_token=${API_TOKEN}
-    ...assistant_name=${ASSISTANT_NAME}
+    ${runsession}=    RW.RunSession.Perform Task Search
+    ...    workspace=${WORKSPACE}
+    ...    query=${QUERY}
+    ...    rw_api_url=${RW_API_URL}
+    ...    api_token=${API_TOKEN}
+    ...    persona=$${WORKSPACE_NAME}--${ASSISTANT_NAME}
 
 
     
 
 
-Send Slack Notification to Channel `${SLACK_CHANNEL}` from RunSession
-    [Documentation]    Sends a Slack message containing the summarized details of the RunSession.
-    ...                Intended to be used as a final task in a workflow.
-    [Tags]             slack    final    notification    runsession
+# Send Slack Notification to Channel `${SLACK_CHANNEL}` from RunSession
+#     [Documentation]    Sends a Slack message containing the summarized details of the RunSession.
+#     ...                Intended to be used as a final task in a workflow.
+#     [Tags]             slack    final    notification    runsession
 
-    # Convert the session JSON (string) to a Python dictionary/list
-    ${session_list}=        Evaluate    json.loads(r'''${SESSION}''')    json
+#     # Convert the session JSON (string) to a Python dictionary/list
+#     ${session_list}=        Evaluate    json.loads(r'''${SESSION}''')    json
 
-    # Gather important information about open issues in the RunSession
-    ${open_issue_count}=    RW.RunSession.Count Open Issues    ${SESSION}
-    ${open_issues}=         RW.RunSession.Get Open Issues      ${SESSION}
-    ${issue_table}=         RW.RunSession.Generate Open Issue Markdown Table    ${open_issues}
-    ${users}=               RW.RunSession.Summarize RunSession Users   ${SESSION}
-    ${runsession_url}=      RW.RunSession.Get RunSession URL    ${session_list["id"]}
-    ${key_resource}=        RW.RunSession.Get Most Referenced Resource    ${SESSION}
-    ${source}=              RW.RunSession.Get RunSession Source    ${session_list}
-    ${title}=               Set Variable    [RunWhen] ${open_issue_count} open issue(s) from ${source} related to `${key_resource}`
+#     # Gather important information about open issues in the RunSession
+#     ${open_issue_count}=    RW.RunSession.Count Open Issues    ${SESSION}
+#     ${open_issues}=         RW.RunSession.Get Open Issues      ${SESSION}
+#     ${issue_table}=         RW.RunSession.Generate Open Issue Markdown Table    ${open_issues}
+#     ${users}=               RW.RunSession.Summarize RunSession Users   ${SESSION}
+#     ${runsession_url}=      RW.RunSession.Get RunSession URL    ${session_list["id"]}
+#     ${key_resource}=        RW.RunSession.Get Most Referenced Resource    ${SESSION}
+#     ${source}=              RW.RunSession.Get RunSession Source    ${session_list}
+#     ${title}=               Set Variable    [RunWhen] ${open_issue_count} open issue(s) from ${source} related to `${key_resource}`
 
 
-    ${blocks}    ${attachments}=    Create RunSession Summary Payload
-    ...    title=${title}
-    ...    open_issue_count=${open_issue_count}
-    ...    users=${users}
-    ...    open_issues=${open_issues}
-    ...    runsession_url=${runsession_url}
+#     ${blocks}    ${attachments}=    Create RunSession Summary Payload
+#     ...    title=${title}
+#     ...    open_issue_count=${open_issue_count}
+#     ...    users=${users}
+#     ...    open_issues=${open_issues}
+#     ...    runsession_url=${runsession_url}
 
-    IF    $open_issue_count > 0
-        RW.Slack.Send Slack Message    
-        ...    webhook_url=${SLACK_WEBHOOK}   
-        ...    blocks=${blocks}    
-        ...    attachments=${attachments}    
-        ...    channel=${SLACK_CHANNEL}
+#     IF    $open_issue_count > 0
+#         RW.Slack.Send Slack Message    
+#         ...    webhook_url=${SLACK_WEBHOOK}   
+#         ...    blocks=${blocks}    
+#         ...    attachments=${attachments}    
+#         ...    channel=${SLACK_CHANNEL}
     
-        # TODO Add http rsp code and open issue if rsp fails
-        Add To Report      Slack Message Sent with Open Issues
-        Add To Report      Open Issues Found in [RunSession ${session_list["id"]}](${runsession_url})
+#         # TODO Add http rsp code and open issue if rsp fails
+#         Add To Report      Slack Message Sent with Open Issues
+#         Add To Report      Open Issues Found in [RunSession ${session_list["id"]}](${runsession_url})
 
-    ELSE
-        Add To Report      No Open Issues Found in [RunSession ${session_list["id"]}](${runsession_url})
-    END
+#     ELSE
+#         Add To Report      No Open Issues Found in [RunSession ${session_list["id"]}](${runsession_url})
+#     END

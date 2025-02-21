@@ -1,7 +1,65 @@
 import re, logging, json, jmespath, requests, os
 from datetime import datetime
 from robot.libraries.BuiltIn import BuiltIn
+from robot.api.deco import keyword
+
 from collections import Counter
+
+def perform_task_search(self, rw_api_url: str = "https://papi.beta.runwhen.com/api/v3", api_token: platform.Secret = None, rw_workspace=str, query: str, persona: str =f"{rw_workspace}--eager-edgar"):
+    """
+    Example: 
+    Perform Task Search
+    """
+    url = f"{rw_api_url}/api/v3/workspaces/{rw_workspace}/task-search"
+    payload = {
+        "query": [query],
+        "scope": [],       # or pass real scope list
+        "start": "ob-grnsucsc1c-flux-kstmz-0230f7f7",
+        "persona": persona
+    }
+    headers = {
+        "Content-Type": "application/json", 
+        "Authorization": f"Bearer {api_token.value}"
+        }
+    resp = requests.post(url, json=payload, headers=headers)
+    resp.raise_for_status()
+    return resp.json()
+
+def create_runsession_from_task_search(self, rw_api_url: str = "https://papi.beta.runwhen.com/api/v3", api_token: platform.Secret = None, rw_workspace: str, search_response, user_query, persona_shortname="eager-edgar"):
+    url = f"{rw_api_url}/workspaces/{rw_workspace}/runsessions"
+
+    tasks = search_response["tasks"]
+    # build runRequests
+    run_requests_map = {}  # slxName -> list of task titles
+
+    for t in tasks:
+        slx = t["slxShortName"]
+        task_name = t["taskName"]
+        if slx not in run_requests_map:
+            run_requests_map[slx] = {
+                "slxName": slx,
+                "taskTitles": [],
+                "fromSearchQuery": user_query,
+                "fromIssue": None
+            }
+        run_requests_map[slx]["taskTitles"].append(task_name)
+
+    run_requests = list(run_requests_map.values())
+
+    session_body = {
+        "generateName": "rubbery-duck",
+        "runRequests": run_requests,
+        "personaShortName": persona_shortname,
+        "active": True
+    }
+
+    headers = {
+        "Content-Type": "application/json", 
+        "Authorization": f"Bearer {api_token.value}"
+        }
+    resp = requests.post(url, json=session_body, headers=headers)
+    resp.raise_for_status()
+    return resp.json()
 
 def get_runsession_url(rw_runsession=None):
     """Return a direct link to the RunSession."""
