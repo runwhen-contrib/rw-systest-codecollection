@@ -17,7 +17,7 @@ Library           RW.Systest
 
 *** Keywords ***
 Suite Initialization
-    ${API_TOKEN}=    RW.Core.Import Secret    API_TOKEN
+    ${RW_API_TOKEN}=    RW.Core.Import Secret    RW_API_TOKEN
     ...    type=string
     ...    description=The RunWhen API Token
     ...    pattern=\w*
@@ -74,13 +74,18 @@ Suite Initialization
 Run E2E RunSession in `${WORKSPACE_NAME}` 
     [Documentation]    Creates a RunSession in the validation workspace, 
     [Tags]             systest    runsession
+    ${search_results}=    RW.RunSession.Perform Task Search
+    ...    rw_workspace=${WORKSPACE_NAME}
+    ...    rw_api_url=${RW_API_URL}
+    ...    api_token=${RW_API_TOKEN}
+    ...    query=${QUERY}
+    ...    persona=${WORKSPACE_NAME}--${ASSISTANT_NAME}
     ${runsession}=    RW.RunSession.Perform Task Search
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    rw_api_url=${RW_API_URL}
+    ...    api_token=${RW_API_TOKEN}
     ...    query=${QUERY}
-    ...    api_token=${API_TOKEN}
     ...    persona=${WORKSPACE_NAME}--${ASSISTANT_NAME}
-
 
     
 

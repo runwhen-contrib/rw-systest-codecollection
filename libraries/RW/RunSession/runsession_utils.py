@@ -25,13 +25,13 @@ def perform_task_search(
     url = f"{rw_api_url}/workspaces/{rw_workspace}/task-search"
     payload = {
         "query": [query],
-        "scope": [],       # or pass real scope list
+        "scope": [],      
         "start": "ob-grnsucsc1c-flux-kstmz-0230f7f7",
         "persona": persona
     }
     headers = {
         "Content-Type": "application/json", 
-        "Authorization": f"Bearer {api_token}"
+        "Authorization": f"Bearer {api_token.value}"
         }
     resp = requests.post(url, json=payload, headers=headers)
     resp.raise_for_status()
