@@ -1,9 +1,11 @@
 import re, logging, json, jmespath, requests, os
 from datetime import datetime
+from RW import platform
+from RW.Core import Core
 from robot.libraries.BuiltIn import BuiltIn
 from collections import Counter
 
-def create_new_runsession_from_query(workspace: str, query: str, rw_api_url: str, api_token: platform.Secret = None, assistant_name: str) -> dict:
+def create_new_runsession_from_query(workspace: str, query: str, rw_api_url: str, api_token: platform.Secret = None, persona: str = "") -> dict:
     """
     Create a new RunSession via an API call.
 
@@ -16,7 +18,7 @@ def create_new_runsession_from_query(workspace: str, query: str, rw_api_url: str
     
     # Construct the payload
     payload={
-        personaShortName={assistant_name},
+        "personaShortName":"{persona}",
         
     }
     # Construct the URL for creating a runsession

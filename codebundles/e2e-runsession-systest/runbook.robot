@@ -75,9 +75,9 @@ Run E2E RunSession in `${WORKSPACE_NAME}`
     [Documentation]    Creates a RunSession in the validation workspace, 
     [Tags]             systest    runsession
     ${runsession}=    RW.RunSession.Perform Task Search
-    ...    workspace=${WORKSPACE}
-    ...    query=${QUERY}
+    ...    rw_workspace=${WORKSPACE_NAME}
     ...    rw_api_url=${RW_API_URL}
+    ...    query=${QUERY}
     ...    api_token=${API_TOKEN}
     ...    persona=$${WORKSPACE_NAME}--${ASSISTANT_NAME}
 

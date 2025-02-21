@@ -1,15 +1,28 @@
 import re, logging, json, jmespath, requests, os
+from RW import platform
+from RW.Core import Core
 from datetime import datetime
 from robot.libraries.BuiltIn import BuiltIn
 from robot.api.deco import keyword
 
 from collections import Counter
 
-def perform_task_search(self, rw_api_url: str = "https://papi.beta.runwhen.com/api/v3", api_token: platform.Secret = None, rw_workspace=str, query: str, persona: str =f"{rw_workspace}--eager-edgar"):
+def perform_task_search(
+    self,
+    rw_api_url: str = "https://papi.beta.runwhen.com/api/v3",
+    api_token: platform.Secret = None,
+    rw_workspace: str = "my-workspace",
+    persona: str = None,
+    query: str = ""
+):
     """
     Example: 
     Perform Task Search
     """
+
+    if persona is None:
+        # Now we construct persona from rw_workspace
+        persona = f"{rw_workspace}--eager-edgar"
     url = f"{rw_api_url}/api/v3/workspaces/{rw_workspace}/task-search"
     payload = {
         "query": [query],
@@ -25,7 +38,7 @@ def perform_task_search(self, rw_api_url: str = "https://papi.beta.runwhen.com/a
     resp.raise_for_status()
     return resp.json()
 
-def create_runsession_from_task_search(self, rw_api_url: str = "https://papi.beta.runwhen.com/api/v3", api_token: platform.Secret = None, rw_workspace: str, search_response, user_query, persona_shortname="eager-edgar"):
+def create_runsession_from_task_search(self, search_response, rw_api_url: str = "https://papi.beta.runwhen.com/api/v3", api_token: platform.Secret = None, rw_workspace=str, persona_shortname="eager-edgar", query:str=""):
     url = f"{rw_api_url}/workspaces/{rw_workspace}/runsessions"
 
     tasks = search_response["tasks"]
