@@ -3,7 +3,7 @@ from datetime import datetime
 from robot.libraries.BuiltIn import BuiltIn
 from collections import Counter
 
-def create_new_runsession(workspace: str, query: str, rw_api_url: str, api_token: platform.Secret = None, assistant_name: str) -> dict:
+def create_new_runsession_from_query(workspace: str, query: str, rw_api_url: str, api_token: platform.Secret = None, assistant_name: str) -> dict:
     """
     Create a new RunSession via an API call.
 
@@ -13,7 +13,12 @@ def create_new_runsession(workspace: str, query: str, rw_api_url: str, api_token
     """
     if not rw_api_url:
         raise EnvironmentError("RW_API_URL environment variable not set.")
-
+    
+    # Construct the payload
+    payload={
+        personaShortName={assistant_name},
+        
+    }
     # Construct the URL for creating a runsession
     endpoint = f"{rw_api_url}/workspaces/{workspace_id}/runsessions"
 

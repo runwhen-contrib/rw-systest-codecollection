@@ -13,6 +13,7 @@ Library           OperatingSystem
 Library           RW.CLI
 Library           RW.Workspace
 Library           RW.RunSession
+Library           RW.Systest
 
 *** Keywords ***
 Suite Initialization
@@ -24,8 +25,8 @@ Suite Initialization
     ...    type=string
     ...    description=PAPI Endpoint URL
     ...    pattern=\w*
-    ...    example=https://papi.beta.runwhen.com
-    ...    default=https://papi.beta.runwhen.com
+    ...    example=https://papi.beta.runwhen.com/api/v3
+    ...    default=https://papi.beta.runwhen.com/api/v3
     ${WORKSPACE_NAME}=    RW.Core.Import User Variable    WORKSPACE_NAME
     ...    type=string
     ...    description=The name of the workspace to interact with
@@ -73,7 +74,13 @@ Suite Initialization
 Run E2E RunSession in `${WORKSPACE_NAME}` 
     [Documentation]    Creates a RunSession in the validation workspace, 
     [Tags]             systest    runsession
-    ${runsession}=    RW.RunSession.Create New RunSession    ${SESSION}
+    ${runsession}=    RW.Systest.Create New RunSession From Query
+    ...workspace=${WORKSPACE}
+    ...query=${QUERY}
+    ...rw_api_url=${RW_API_URL}
+    ...api_token=${API_TOKEN}
+    ...assistant_name=${ASSISTANT_NAME}
+
 
     
 
