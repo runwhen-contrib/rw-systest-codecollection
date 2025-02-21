@@ -1,4 +1,4 @@
-import re, logging, json, jmespath, requests, os
+import re, logging, json, jmespath, requests, os, time
 from RW import platform
 from RW.Core import Core
 from datetime import datetime
@@ -26,7 +26,7 @@ def perform_task_search(
     payload = {
         "query": [query],
         "scope": [],      
-        "start": "ob-grnsucsc1c-flux-kstmz-0230f7f7",
+        "start": "crt-ob-grnwhnnpr-depl-health",
         "persona": persona
     }
     headers = {
@@ -38,29 +38,59 @@ def perform_task_search(
     return resp.json()
 
 def create_runsession_from_task_search(
-    search_response, 
-    rw_api_url: str = "https://papi.beta.runwhen.com/api/v3", 
-    api_token: platform.Secret = None, 
-    rw_workspace=str, 
-    persona_shortname="eager-edgar", query:str=""):
+    search_response: dict,
+    api_token,  # platform.Secret
+    rw_api_url: str = "https://papi.beta.runwhen.com/api/v3",
+    rw_workspace: str = "t-online-boutique",
+    persona_shortname: str = "eager-edgar",
+    query: str = "",
+    score_threshold: float = 0.3,
+    curl_script_filename: str = "create_runsession_curl.sh"
+) -> dict:
+    """
+    Create a RunSession from the tasks in `search_response`, filtering by `score_threshold`.
+    Then, generate a local shell script (`curl_script_filename`) with the curl command
+    that can replicate this request.
+
+    :param search_response: Dict from your "task-search" JSON
+    :param api_token: platform.Secret wrapper around the token
+    :param rw_api_url: Base URL for the RunWhen API
+    :param rw_workspace: Short name of the workspace
+    :param persona_shortname: Persona for the runsession
+    :param query: The user query that led to these tasks
+    :param score_threshold: Minimum score for tasks to include
+    :param curl_script_filename: Name of the .sh file to write the curl command into
+    :return: The JSON response from creating the RunSession
+    """
+
+    # Endpoint for creating a runsession
     url = f"{rw_api_url}/workspaces/{rw_workspace}/runsessions"
 
-    tasks = search_response["tasks"]
-    # build runRequests
-    run_requests_map = {}  # slxName -> list of task titles
+    tasks = search_response.get("tasks", [])
+    # Build a map: slxName -> runRequest dict
+    run_requests_map = {}
 
     for t in tasks:
-        slx = t["slxShortName"]
-        task_name = t["taskName"]
+        if t.get("score", 0) < score_threshold:
+            continue
+
+        ws_task = t.get("workspaceTask", {})
+        slx = ws_task.get("slxName")
+        task_name = ws_task.get("unresolvedTitle")
+        if not slx or not task_name:
+            # skip tasks if missing data
+            continue
+
         if slx not in run_requests_map:
             run_requests_map[slx] = {
                 "slxName": slx,
                 "taskTitles": [],
-                "fromSearchQuery": user_query,
+                "fromSearchQuery": query,
                 "fromIssue": None
             }
         run_requests_map[slx]["taskTitles"].append(task_name)
 
+    # Convert map to list
     run_requests = list(run_requests_map.values())
 
     session_body = {
@@ -70,13 +100,103 @@ def create_runsession_from_task_search(
         "active": True
     }
 
+    # Prepare headers
     headers = {
-        "Content-Type": "application/json", 
+        "Content-Type": "application/json",
         "Authorization": f"Bearer {api_token.value}"
-        }
+    }
+
+    # # 1) Write out the curl command to a local file
+    # #    We'll inline the JSON. For multiline readability, we might keep it short
+    # #    or you can split it into a separate body.json file. This example does inline.
+    # json_str = json.dumps(session_body)
+    # curl_cmd = (
+    #     f"#!/bin/bash\n\n"
+    #     f"# This script replicates the request to create a RunSession.\n\n"
+    #     f"curl -X POST '{url}' \\\n"
+    #     f"  -H 'Content-Type: application/json' \\\n"
+    #     f"  -H 'Authorization: Bearer {api_token.value}' \\\n"
+    #     f"  -d '{json_str}'\n"
+    # )
+
+    # with open(curl_script_filename, "w", encoding="utf-8") as f:
+    #     f.write(curl_cmd)
+    
+    # # Optionally make it executable
+    # os.chmod(curl_script_filename, 0o755)
+
+    # 2) Make the actual POST request in Python
     resp = requests.post(url, json=session_body, headers=headers)
     resp.raise_for_status()
     return resp.json()
+
+
+def wait_for_runsession_tasks_to_complete(
+    rw_workspace: str,
+    runsession_id: int,
+    rw_api_url: str,
+    api_token: platform.Secret,
+    poll_interval: float = 5.0,
+    max_wait_seconds: float = 300.0
+) -> dict:
+    """
+    Polls the RunSession until the number of runRequests stops growing
+    for two consecutive checks, or until max_wait_seconds has passed.
+    
+    :param rw_workspace: The short name of the workspace (e.g. "t-online-boutique").
+    :param runsession_id: The integer ID of the RunSession to monitor.
+    :param rw_api_url: Base URL to the RunWhen API (e.g. "https://papi.test.runwhen.com/api/v3").
+    :param api_token: The raw authorization token string.
+    :param poll_interval: Seconds to wait between polls. Default 5s.
+    :param max_wait_seconds: Stop polling after this many seconds. Default 300s (5 min).
+    :return: The final RunSession JSON once stable, or the last JSON if timeout is reached.
+    :raises TimeoutError: If we never see stability before max_wait_seconds.
+    """
+    endpoint = f"{rw_api_url}/workspaces/{rw_workspace}/runsessions/{runsession_id}"
+    headers = {
+        "Authorization": f"Bearer {api_token.value}",
+        "Accept": "application/json"
+    }
+    
+    start_time = time.time()
+    stable_count = 0   # How many consecutive times the count has remained unchanged
+    last_length = None
+    
+    while True:
+        # 1) Fetch the RunSession JSON
+        resp = requests.get(endpoint, headers=headers)
+        resp.raise_for_status()
+        session_data = resp.json()
+        
+        # 2) Count the runRequests
+        run_requests = session_data.get("runRequests", [])
+        current_length = len(run_requests)
+        
+        # 3) Compare with previous length
+        if last_length is not None and current_length == last_length:
+            stable_count += 1
+        else:
+            stable_count = 0
+        
+        last_length = current_length
+        
+        # 4) Check if stable for 2 consecutive polls
+        if stable_count >= 3:
+            # You could adjust logic to stable_count >= 2 if you really want 2 more polls.
+            print(f"RunSession {runsession_id} is stable with {current_length} runRequests.")
+            return session_data
+        
+        # 5) Check for timeout
+        elapsed = time.time() - start_time
+        if elapsed > max_wait_seconds:
+            raise TimeoutError(
+                f"RunSession {runsession_id} did not stabilize within {max_wait_seconds} seconds."
+            )
+        
+        # 6) Sleep before next poll
+        time.sleep(poll_interval)
+    return session_data
+
 
 def get_runsession_url(rw_runsession=None):
     """Return a direct link to the RunSession."""

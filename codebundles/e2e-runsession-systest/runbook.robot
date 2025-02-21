@@ -71,7 +71,7 @@ Suite Initialization
     # END
 
 *** Tasks ***
-Run E2E RunSession in `${WORKSPACE_NAME}` 
+Run E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}` 
     [Documentation]    Creates a RunSession in the validation workspace, 
     [Tags]             systest    runsession
     ${search_results}=    RW.RunSession.Perform Task Search
@@ -80,13 +80,20 @@ Run E2E RunSession in `${WORKSPACE_NAME}`
     ...    api_token=${RW_API_TOKEN}
     ...    query=${QUERY}
     ...    persona=${WORKSPACE_NAME}--${ASSISTANT_NAME}
-    ${runsession}=    RW.RunSession.Perform Task Search
+    ${runsession}=    RW.RunSession.Create RunSession from Task Search
+    ...    search_response=${search_results}
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    rw_api_url=${RW_API_URL}
     ...    api_token=${RW_API_TOKEN}
     ...    query=${QUERY}
-    ...    persona=${WORKSPACE_NAME}--${ASSISTANT_NAME}
-
+    ...    persona_shortname=${ASSISTANT_NAME}
+    ${runsession_status}=    RW.RunSession.Wait for RunSession Tasks to Complete
+    ...    rw_workspace=${WORKSPACE_NAME}
+    ...    runsession_id=${runsession["id"]}
+    ...    rw_api_url=${RW_API_URL}
+    ...    api_token=${RW_API_TOKEN}
+    ...    poll_interval=30
+    ...    max_wait_seconds=600
     
 
 
