@@ -79,7 +79,7 @@ Run E2E RunSession in `${WORKSPACE_NAME}`
     ...    rw_api_url=${RW_API_URL}
     ...    query=${QUERY}
     ...    api_token=${API_TOKEN}
-    ...    persona=$${WORKSPACE_NAME}--${ASSISTANT_NAME}
+    ...    persona=${WORKSPACE_NAME}--${ASSISTANT_NAME}
 
 
     

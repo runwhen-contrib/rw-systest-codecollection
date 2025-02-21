@@ -8,7 +8,6 @@ from robot.api.deco import keyword
 from collections import Counter
 
 def perform_task_search(
-    self,
     rw_api_url: str = "https://papi.beta.runwhen.com/api/v3",
     api_token: platform.Secret = None,
     rw_workspace: str = "my-workspace",
@@ -23,7 +22,7 @@ def perform_task_search(
     if persona is None:
         # Now we construct persona from rw_workspace
         persona = f"{rw_workspace}--eager-edgar"
-    url = f"{rw_api_url}/api/v3/workspaces/{rw_workspace}/task-search"
+    url = f"{rw_api_url}/workspaces/{rw_workspace}/task-search"
     payload = {
         "query": [query],
         "scope": [],       # or pass real scope list
@@ -32,13 +31,18 @@ def perform_task_search(
     }
     headers = {
         "Content-Type": "application/json", 
-        "Authorization": f"Bearer {api_token.value}"
+        "Authorization": f"Bearer {api_token}"
         }
     resp = requests.post(url, json=payload, headers=headers)
     resp.raise_for_status()
     return resp.json()
 
-def create_runsession_from_task_search(self, search_response, rw_api_url: str = "https://papi.beta.runwhen.com/api/v3", api_token: platform.Secret = None, rw_workspace=str, persona_shortname="eager-edgar", query:str=""):
+def create_runsession_from_task_search(
+    search_response, 
+    rw_api_url: str = "https://papi.beta.runwhen.com/api/v3", 
+    api_token: platform.Secret = None, 
+    rw_workspace=str, 
+    persona_shortname="eager-edgar", query:str=""):
     url = f"{rw_api_url}/workspaces/{rw_workspace}/runsessions"
 
     tasks = search_response["tasks"]
