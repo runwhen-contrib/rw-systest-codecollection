@@ -7,6 +7,106 @@ from robot.api.deco import keyword
 
 from collections import Counter
 
+def get_visited_slx_and_tasks_from_runsession(runsession_data: dict):
+    """
+    Return a dict of:
+        {
+          "restart-loadbalancer": [
+            "Restart Resource with Labels `app=frontend`",
+            "Get Resource Logs with Labels `app=frontend`",
+            "Get Current Resource State with Labels `app=frontend`"
+          ],
+          "pagerduty-webhook-handler": [
+            "Run SLX Tasks with matching PagerDuty Webhook Service ID"
+          ],
+          ...
+        }
+    """
+    slx_map = {}
+    run_requests = runsession_data.get("runRequests", [])
+    for rr in run_requests:
+        slx_name = rr.get("slxName")
+        # Sometimes 'resolvedTaskTitles' might be empty or a single string.
+        # Usually you can split on '||'.
+        resolved_titles = rr.get("resolvedTaskTitles", "")
+        # Split by || if it’s a multi-task
+        tasks = resolved_titles.split("||") if resolved_titles else []
+        slx_map[slx_name] = tasks
+    return slx_map
+
+def get_workspace_slxs(
+    rw_api_url: str = "https://papi.beta.runwhen.com/api/v3",
+    api_token: platform.Secret = None,
+    rw_workspace: str = "my-workspace"
+) -> str:
+    """
+    Get all SLXs in a RunWhen workspace.
+
+    :param rw_api_url: Base URL to the RunWhen API.
+    :param api_token: A platform.Secret token object containing your bearer token.
+    :param rw_workspace: The short name of the workspace.
+    :return: A JSON string containing all SLXs (the raw response from the API).
+    """
+    url = f"{rw_api_url}/workspaces/{rw_workspace}/slxs"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_token.value}"
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        # Return the raw JSON string so you can parse it later or pass around as needed
+        return response.text
+    except (requests.ConnectTimeout, requests.ConnectionError, json.JSONDecodeError) as e:
+        warning_log(
+            f"Exception while fetching SLXs in workspace '{rw_workspace}': {e}",
+            str(e),
+            str(type(e))
+        )
+        platform_logger.exception(e)
+        return ""
+
+def get_slxs_with_tags_from_dict(
+    tag_list: list,
+    slx_data: str
+) -> list:
+    """
+    Given a list of tags and a JSON string of SLX data,
+    return all SLXs that match at least one of the specified tags.
+
+    :param tag_list: A list of dicts, e.g. [{'name': 'tagkey', 'value': 'tagval'}, ...].
+    :param slx_data: A JSON string containing existing SLX data, typically from get_workspace_slxs().
+    :return: A list of SLX dicts that match any of the given tags.
+    """
+    if not slx_data:
+        return []
+
+    try:
+        all_slxs = json.loads(slx_data)  # Parse the JSON content
+    except json.JSONDecodeError as e:
+        warning_log(f"JSON decode error in slx_data: {e}")
+        platform_logger.exception(e)
+        return []
+
+    # If the API returns a dict with a "results" list, we assume the actual SLXs are in that list.
+    results = all_slxs.get("results", [])
+
+    matching_slxs = []
+    for slx in results:
+        # spec->tags is usually something like [{"name": "...", "value": "..."}].
+        tags = slx.get("spec", {}).get("tags", [])
+        # Check if any of the SLX's tags match any tag in tag_list.
+        for tag in tags:
+            if any(
+                tag_item["name"] == tag["name"] and tag_item["value"] == tag["value"]
+                for tag_item in tag_list
+            ):
+                matching_slxs.append(slx)
+                break  # Stop checking other tags for this SLX; we already found a match.
+
+    return matching_slxs
+
 def get_slxs_with_tag(
     tag_list: list,
     rw_api_url: str = "https://papi.beta.runwhen.com/api/v3",

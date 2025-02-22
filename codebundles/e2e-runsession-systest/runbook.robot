@@ -51,18 +51,25 @@ Suite Initialization
     ...    pattern=\w*
     ...    example=eager-edgar
     ...    default=eager-edgar
-    ${SLX_TAGS}=    RW.Core.Import User Variable    SLX_TAGS
+    ${STARTING_SCOPE_SLX_TAGS}=    RW.Core.Import User Variable    STARTING_SCOPE_SLX_TAGS
     ...    type=string
     ...    description=A list of tags used to select SLX scope for the RunSession
     ...    pattern=\w*
-    ...    example=["systest:true"]
-    ...    default=["systest:true"]
+    ...    example=["systest:scope"]
+    ...    default=["systest:scope"]
+    ${VALIDATION_SLX_TAGS}=    RW.Core.Import User Variable    VALIDATION_SLX_TAGS
+    ...    type=string
+    ...    description=A list of tags used to validate that specific SLXs were visited in the RunSession.
+    ...    pattern=\w*
+    ...    example=["systest:validate"]
+    ...    default=["systest:validate"]
     Set Suite Variable    ${RW_API_URL}    ${RW_API_URL}
     Set Suite Variable    ${ENVIRONMENT_NAME}    ${ENVIRONMENT_NAME}
     Set Suite Variable    ${WORKSPACE_NAME}    ${WORKSPACE_NAME}
     Set Suite Variable    ${QUERY}    ${QUERY}
     Set Suite Variable    ${ASSISTANT_NAME}    ${ASSISTANT_NAME}
-    Set Suite Variable    ${SLX_TAGS}    ${SLX_TAGS}
+    Set Suite Variable    ${STARTING_SCOPE_SLX_TAGS}    ${STARTING_SCOPE_SLX_TAGS}
+    Set Suite Variable    ${VALIDATION_SLX_TAGS}    ${VALIDATION_SLX_TAGS}
 
 *** Tasks ***
 
@@ -88,17 +95,37 @@ Check Index Health for `${WORKSPACE_NAME}`
 Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}` 
     [Documentation]    Validates a RunSession using the provided query in the specified workspace
     [Tags]             systest    runsession
-    ${common_labels_list}=    Evaluate    [{'name': pair.split(':')[0], 'value': pair.split(':')[1]} for pair in ${SLX_TAGS}]
-    ${matched_slxs}=    RW.Systest.Get Slxs With Tag
-    ...    tag_list=${common_labels_list}
+    ${scope_slx_tags}=    Evaluate    [{'name': pair.split(':')[0], 'value': pair.split(':')[1]} for pair in ${STARTING_SCOPE_SLX_TAGS}]
+    ${validation_slx_tags}=    Evaluate    [{'name': pair.split(':')[0], 'value': pair.split(':')[1]} for pair in ${VALIDATION_SLX_TAGS}]
+
+    # Fetch the workspace SLX List
+    ${workspace_slxs}=    RW.Systest.Get Workspace SLXs
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    rw_api_url=${RW_API_URL}
     ...    api_token=${RW_API_TOKEN}
+
+    # Get each list of SLXs that match the configured tags    
+    ${matched_scope_slxs}=    RW.Systest.Get SLXs With Tags From Dict
+    ...    tag_list=${scope_slx_tags}
+    ...    slx_data=${workspace_slxs}
+    ${matched_validation_slxs}=    RW.Systest.Get SLXs With Tags From Dict
+    ...    tag_list=${validation_slx_tags}
+    ...    slx_data=${workspace_slxs}
+
     ${slx_scope}=    Create List
-    FOR  ${slx}  IN  @{matched_slxs}
+    FOR  ${slx}  IN  @{matched_scope_slxs}
         Append To List    ${slx_scope}    ${slx["name"]}        
-        Add To Report    Scoping Test to ${slx["name"]}
     END
+    Add To Report    Scoping Test to the following SLXs: ${slx_scope}
+    
+    ${validation_slxs}=    Create List
+    FOR  ${slx}  IN  @{matched_validation_slxs}
+        Append To List    ${validation_slxs}    ${slx["name"]}        
+    END
+    Add To Report    Validation will check that the following SLXs are in the RunSession: ${validation_slxs}
+
+
+    # Get the list of suggested Tasks for the Runsession from the configured Query
     ${search_results}=    RW.Systest.Perform Task Search
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    rw_api_url=${RW_API_URL}
@@ -107,16 +134,19 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
     ...    slx_scope=${slx_scope}
     ...    persona=${WORKSPACE_NAME}--${ASSISTANT_NAME}
     Add Json To Report    ${search_results}
+
     IF    "$search_results" == "{'tasks': [], 'links': [], 'owners': []}"
         RW.Core.Add Issue    
         ...    severity=1
-        ...    next_steps=Check Indexing Health
+        ...    next_steps=Check Index Health for `${WORKSPACE_NAME}`
         ...    actual=Search returned no results
         ...    expected=Search should return at least one or more sets of tasks 
         ...    title=Search returned no results for `${QUERY}` in `${WORKSPACE_NAME}` 
         ...    reproduce_hint=Search `${QUERY}` in `${WORKSPACE_NAME}` in `${ENVIRONMENT_NAME}`
         ...    details=Search results are empty. Scoped search to ${slx_scope}
     END
+
+    # Start the RunSession
     ${runsession}=    RW.Systest.Create RunSession from Task Search
     ...    search_response=${search_results}
     ...    rw_workspace=${WORKSPACE_NAME}
@@ -125,53 +155,39 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
     ...    query=${QUERY}
     ...    persona_shortname=${ASSISTANT_NAME}
     ...    score_threshold=0.3
+
     ${runsession_status}=    RW.Systest.Wait for RunSession Tasks to Complete
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    runsession_id=${runsession["id"]}
     ...    rw_api_url=${RW_API_URL}
     ...    api_token=${RW_API_TOKEN}
-    ...    poll_interval=30
-    ...    max_wait_seconds=600
-    
+    ...    poll_interval=3
+    ...    max_wait_seconds=10
+    Add Json To Report    ${runsession_status}
 
+    # Validate that the desired SLXs were visited in the RunSession
+    ${runsession_tasks}=    RW.Systest.Get Visited SLX and Tasks from RunSession
+    ...    runsession_data=${runsession_status}
+    Add Pre To Report    SLXs Visited in this Runsession:\n${runsession_tasks}
 
-# Send Slack Notification to Channel `${SLACK_CHANNEL}` from RunSession
-#     [Documentation]    Sends a Slack message containing the summarized details of the RunSession.
-#     ...                Intended to be used as a final task in a workflow.
-#     [Tags]             slack    final    notification    runsession
+    ${overlap}    Create List
+    FOR    ${item}    IN    @{validation_slxs}
+        IF    '$item' in '@runsession_tasks'
+            Append To List    ${overlap}    ${item}
+        END
+    END
 
-#     # Convert the session JSON (string) to a Python dictionary/list
-#     ${session_list}=        Evaluate    json.loads(r'''${SESSION}''')    json
+    Add Pre To Report     Desried SLXs visited in RunSession: ${overlap}
+    ${runsession_url}=    Set Variable    ${RW_API_URL}/workspaces/${WORKSPACE_NAME}/runsessions/${runsession["id"]}
+    Add Url To Report    ${runsession_url}
 
-#     # Gather important information about open issues in the RunSession
-#     ${open_issue_count}=    RW.RunSession.Count Open Issues    ${SESSION}
-#     ${open_issues}=         RW.RunSession.Get Open Issues      ${SESSION}
-#     ${issue_table}=         RW.RunSession.Generate Open Issue Markdown Table    ${open_issues}
-#     ${users}=               RW.RunSession.Summarize RunSession Users   ${SESSION}
-#     ${runsession_url}=      RW.RunSession.Get RunSession URL    ${session_list["id"]}
-#     ${key_resource}=        RW.RunSession.Get Most Referenced Resource    ${SESSION}
-#     ${source}=              RW.RunSession.Get RunSession Source    ${session_list}
-#     ${title}=               Set Variable    [RunWhen] ${open_issue_count} open issue(s) from ${source} related to `${key_resource}`
-
-
-#     ${blocks}    ${attachments}=    Create RunSession Summary Payload
-#     ...    title=${title}
-#     ...    open_issue_count=${open_issue_count}
-#     ...    users=${users}
-#     ...    open_issues=${open_issues}
-#     ...    runsession_url=${runsession_url}
-
-#     IF    $open_issue_count > 0
-#         RW.Slack.Send Slack Message    
-#         ...    webhook_url=${SLACK_WEBHOOK}   
-#         ...    blocks=${blocks}    
-#         ...    attachments=${attachments}    
-#         ...    channel=${SLACK_CHANNEL}
-    
-#         # TODO Add http rsp code and open issue if rsp fails
-#         Add To Report      Slack Message Sent with Open Issues
-#         Add To Report      Open Issues Found in [RunSession ${session_list["id"]}](${runsession_url})
-
-#     ELSE
-#         Add To Report      No Open Issues Found in [RunSession ${session_list["id"]}](${runsession_url})
-#     END
+    IF    $overlap == []
+        RW.Core.Add Issue    
+        ...    severity=2
+        ...    next_steps=Review [RunSession URL](${runsession_url})
+        ...    actual=Desired Validation SLX not visited in RunSession
+        ...    expected=Validation SLXs should be visited in RunSession
+        ...    title=RunSession Validation Failed for `${QUERY}` in `${WORKSPACE_NAME}`
+        ...    reproduce_hint=Search `${QUERY}` in `${WORKSPACE_NAME}` in `${ENVIRONMENT_NAME}`
+        ...    details=All tasks visited in RunSession:\n${runsession_tasks}
+    END
