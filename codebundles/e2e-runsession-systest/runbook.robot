@@ -7,12 +7,12 @@ Metadata          Display Name     E2E RunSession Systest
 Suite Setup       Suite Initialization
 
 Library           BuiltIn
+Library           Collections
 Library           RW.Core
 Library           RW.platform
 Library           OperatingSystem
 Library           RW.CLI
 Library           RW.Workspace
-Library           RW.RunSession
 Library           RW.Systest
 
 *** Keywords ***
@@ -51,36 +51,73 @@ Suite Initialization
     ...    pattern=\w*
     ...    example=eager-edgar
     ...    default=eager-edgar
+    ${SLX_TAGS}=    RW.Core.Import User Variable    SLX_TAGS
+    ...    type=string
+    ...    description=A list of tags used to select SLX scope for the RunSession
+    ...    pattern=\w*
+    ...    example=["systest:true"]
+    ...    default=["systest:true"]
     Set Suite Variable    ${RW_API_URL}    ${RW_API_URL}
     Set Suite Variable    ${ENVIRONMENT_NAME}    ${ENVIRONMENT_NAME}
     Set Suite Variable    ${WORKSPACE_NAME}    ${WORKSPACE_NAME}
     Set Suite Variable    ${QUERY}    ${QUERY}
     Set Suite Variable    ${ASSISTANT_NAME}    ${ASSISTANT_NAME}
-
-
-    # # Get the current RunSession details from the workspace
-    # ${CURRENT_SESSION}=      RW.Workspace.Import Runsession Details
-    # # Check if there is a "related" RunSession to fetch instead
-    # ${RELATED_RUNSESSION}=   RW.Workspace.Import Related RunSession Details    ${CURRENT_SESSION}
-
-    # # Prefer the related session if it’s available, else fall back to the current one
-    # IF    $RELATED_RUNSESSION != None
-    #     Set Suite Variable    ${SESSION}   ${RELATED_RUNSESSION}
-    # ELSE
-    #     Set Suite Variable    ${SESSION}   ${CURRENT_SESSION}
-    # END
+    Set Suite Variable    ${SLX_TAGS}    ${SLX_TAGS}
 
 *** Tasks ***
-Run E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}` 
-    [Documentation]    Creates a RunSession in the validation workspace, 
+
+Check Index Health for `${WORKSPACE_NAME}`
+    [Documentation]    Checks the index status of the specified workspace 
+    [Tags]             systest    index
+    ${index}=    RW.Systest.Get Workspace Index Status
+    ...    rw_workspace=${WORKSPACE_NAME}
+    ...    rw_api_url=${RW_API_URL}
+    ...    api_token=${RW_API_TOKEN}
+    Add Pre To Report    ${index}
+    IF    "${index["status"]["indexingStatus"]}" != "green"
+        RW.Core.Add Issue    
+        ...    severity=2
+        ...    next_steps=Review the index health from the json
+        ...    actual=Index health is... not... green
+        ...    expected=Workspace index health should be green 
+        ...    title=Index status is unhealthy in `${WORKSPACE_NAME}` 
+        ...    reproduce_hint=cURL the index-status endpoint
+        ...    details=See the report details for index status. 
+    END   
+
+Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}` 
+    [Documentation]    Validates a RunSession using the provided query in the specified workspace
     [Tags]             systest    runsession
-    ${search_results}=    RW.RunSession.Perform Task Search
+    ${common_labels_list}=    Evaluate    [{'name': pair.split(':')[0], 'value': pair.split(':')[1]} for pair in ${SLX_TAGS}]
+    ${matched_slxs}=    RW.Systest.Get Slxs With Tag
+    ...    tag_list=${common_labels_list}
+    ...    rw_workspace=${WORKSPACE_NAME}
+    ...    rw_api_url=${RW_API_URL}
+    ...    api_token=${RW_API_TOKEN}
+    ${slx_scope}=    Create List
+    FOR  ${slx}  IN  @{matched_slxs}
+        Append To List    ${slx_scope}    ${slx["name"]}        
+        Add To Report    Scoping Test to ${slx["name"]}
+    END
+    ${search_results}=    RW.Systest.Perform Task Search
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    rw_api_url=${RW_API_URL}
     ...    api_token=${RW_API_TOKEN}
     ...    query=${QUERY}
+    ...    slx_scope=${slx_scope}
     ...    persona=${WORKSPACE_NAME}--${ASSISTANT_NAME}
-    ${runsession}=    RW.RunSession.Create RunSession from Task Search
+    Add Json To Report    ${search_results}
+    IF    "$search_results" == "{'tasks': [], 'links': [], 'owners': []}"
+        RW.Core.Add Issue    
+        ...    severity=1
+        ...    next_steps=Check Indexing Health
+        ...    actual=Search returned no results
+        ...    expected=Search should return at least one or more sets of tasks 
+        ...    title=Search returned no results for `${QUERY}` in `${WORKSPACE_NAME}` 
+        ...    reproduce_hint=Search `${QUERY}` in `${WORKSPACE_NAME}` in `${ENVIRONMENT_NAME}`
+        ...    details=Search results are empty. Scoped search to ${slx_scope}
+    END
+    ${runsession}=    RW.Systest.Create RunSession from Task Search
     ...    search_response=${search_results}
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    rw_api_url=${RW_API_URL}
@@ -88,7 +125,7 @@ Run E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
     ...    query=${QUERY}
     ...    persona_shortname=${ASSISTANT_NAME}
     ...    score_threshold=0.3
-    ${runsession_status}=    RW.RunSession.Wait for RunSession Tasks to Complete
+    ${runsession_status}=    RW.Systest.Wait for RunSession Tasks to Complete
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    runsession_id=${runsession["id"]}
     ...    rw_api_url=${RW_API_URL}
