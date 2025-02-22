@@ -63,6 +63,24 @@ Suite Initialization
     ...    pattern=\w*
     ...    example=["systest:validate"]
     ...    default=["systest:validate"]
+    ${TASK_SEARCH_CONFIDENCE}=    RW.Core.Import User Variable    TASK_SEARCH_CONFIDENCE
+    ...    type=string
+    ...    description=The search confidence threshold for running tasks. Expects a value between 0 and 1, representing a percentage.
+    ...    pattern=\w*
+    ...    example=0.8
+    ...    default=0.3
+    ${RUNSESSION_POLL_INTERVAL}=    RW.Core.Import User Variable    RUNSESSION_POLL_INTERVAL
+    ...    type=string
+    ...    description=How often, in seconds, to query the RunSession for status updates. 
+    ...    pattern=\w*
+    ...    example=30
+    ...    default=30
+    ${RUNSESSION_MAX_TIMEOUT}=    RW.Core.Import User Variable    RUNSESSION_MAX_TIMEOUT
+    ...    type=string
+    ...    description=The RunSession polling timeout, in seconds.  
+    ...    pattern=\w*
+    ...    example=300
+    ...    default=600
     Set Suite Variable    ${RW_API_URL}    ${RW_API_URL}
     Set Suite Variable    ${ENVIRONMENT_NAME}    ${ENVIRONMENT_NAME}
     Set Suite Variable    ${WORKSPACE_NAME}    ${WORKSPACE_NAME}
@@ -70,9 +88,12 @@ Suite Initialization
     Set Suite Variable    ${ASSISTANT_NAME}    ${ASSISTANT_NAME}
     Set Suite Variable    ${STARTING_SCOPE_SLX_TAGS}    ${STARTING_SCOPE_SLX_TAGS}
     Set Suite Variable    ${VALIDATION_SLX_TAGS}    ${VALIDATION_SLX_TAGS}
+    Set Suite Variable    ${TASK_SEARCH_CONFIDENCE}    ${TASK_SEARCH_CONFIDENCE}
+    Set Suite Variable    ${RUNSESSION_POLL_INTERVAL}    ${RUNSESSION_POLL_INTERVAL}
+    Set Suite Variable    ${RUNSESSION_MAX_TIMEOUT}    ${RUNSESSION_MAX_TIMEOUT}
+
 
 *** Tasks ***
-
 Check Index Health for `${WORKSPACE_NAME}`
     [Documentation]    Checks the index status of the specified workspace 
     [Tags]             systest    index
@@ -154,15 +175,15 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
     ...    api_token=${RW_API_TOKEN}
     ...    query=${QUERY}
     ...    persona_shortname=${ASSISTANT_NAME}
-    ...    score_threshold=0.3
+    ...    score_threshold=${TASK_SEARCH_CONFIDENCE}
 
     ${runsession_status}=    RW.Systest.Wait for RunSession Tasks to Complete
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    runsession_id=${runsession["id"]}
     ...    rw_api_url=${RW_API_URL}
     ...    api_token=${RW_API_TOKEN}
-    ...    poll_interval=3
-    ...    max_wait_seconds=10
+    ...    poll_interval=${RUNSESSION_POLL_INTERVAL}
+    ...    max_wait_seconds=${RUNSESSION_MAX_TIMEOUT}
     Add Json To Report    ${runsession_status}
 
     # Validate that the desired SLXs were visited in the RunSession
