@@ -4,6 +4,7 @@ from RW.Core import Core
 from datetime import datetime
 from robot.libraries.BuiltIn import BuiltIn
 from robot.api.deco import keyword
+from robot.api import logger as robot_logger
 
 from collections import Counter
 
@@ -165,17 +166,40 @@ def get_workspace_index_status(
     rw_workspace: str = "my-workspace"
 ):
     """
-    Example: 
-    Get the index healfh of a workspace
+    Fetch and parse the "index-status" endpoint for a given workspace,
+    returning both the indexing status (as a string, e.g. "green" or "indexing")
+    and the full JSON response as a dictionary.
+
+    :param rw_api_url: Base URL to the RunWhen API (default: https://papi.beta.runwhen.com/api/v3).
+    :param api_token: A platform.Secret token object containing your bearer token.
+    :param rw_workspace: The short name of the workspace you want to query.
+    :return: A tuple (status_value, response_dict) where:
+             - status_value is a string (e.g., "green", "indexing", or None if unknown).
+             - response_dict is the entire parsed JSON from the endpoint.
     """
     url = f"{rw_api_url}/workspaces/{rw_workspace}/index-status"
     headers = {
-        "Content-Type": "application/json", 
+        "Content-Type": "application/json",
         "Authorization": f"Bearer {api_token.value}"
-        }
+    }
+
     resp = requests.get(url, headers=headers)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+
+    # Attempt to find the 'actual status' in multiple places:
+    # 1) data["status"]["indexingStatus"], if "status" sub-dict exists
+    # 2) data["indexingStatus"] at top-level, or None if not present
+    # Note: I think some of this has to do with various index status return details 
+    # between different platform releases. There could be many variations
+    status_value = None
+    if isinstance(data.get("status"), dict) and "indexingStatus" in data["status"]:
+        status_value = data["status"]["indexingStatus"]
+    elif "indexingStatus" in data:
+        status_value = data["indexingStatus"]
+
+    # Return both the extracted status and the full JSON
+    return status_value, data
 
 def perform_task_search(
     rw_api_url: str = "https://papi.beta.runwhen.com/api/v3",
@@ -183,29 +207,55 @@ def perform_task_search(
     rw_workspace: str = "my-workspace",
     persona: str = None,
     query: str = "",
-    slx_scope: list = []
+    slx_scope: list = None
 ):
     """
-    Example: 
-    Perform Task Search
+    Perform a task search in the given workspace with the specified persona and query.
+    
+    :param rw_api_url: Base URL to the RunWhen API.
+    :param api_token: A platform.Secret token containing your bearer token.
+    :param rw_workspace: Short name of the workspace.
+    :param persona: Persona shortname or None to default to <rw_workspace>--eager-edgar
+    :param query: The search query (string).
+    :param slx_scope: A list of slxShortNames to limit the search scope (optional).
+    
+    :return: Parsed JSON response from the task-search endpoint.
     """
-
+    if slx_scope is None:
+        slx_scope = []
     if persona is None:
-        # Now we construct persona from rw_workspace
         persona = f"{rw_workspace}--eager-edgar"
+
+    # Construct the POST URL and payload
     url = f"{rw_api_url}/workspaces/{rw_workspace}/task-search"
     payload = {
         "query": [query],
-        "scope": slx_scope,      
-        # "start": "crt-ob-grnwhnnpr-depl-health",
+        "scope": slx_scope,
         "persona": persona
     }
     headers = {
-        "Content-Type": "application/json", 
+        "Content-Type": "application/json",
         "Authorization": f"Bearer {api_token.value}"
-        }
+    }
+
+    # Build a cURL command for troubleshooting
+    # (masking or not masking token is up to you)
+    payload_json_str = json.dumps(payload)
+    curl_cmd = (
+        f"curl -X POST '{url}' \\\n"
+        f"  -H 'Content-Type: application/json' \\\n"
+        f"  -H 'Authorization: Bearer $RW_API_TOKEN' \\\n"
+        f"  -d '{payload_json_str}'"
+    )
+
+    # Log the HTTP request details
+    robot_logger.info(f"Performing task search POST:\n  URL: {url}\n  Payload: {payload}", html=False)
+    robot_logger.info(f"Equivalent cURL:\n{curl_cmd}", html=False)
+
     resp = requests.post(url, json=payload, headers=headers)
     resp.raise_for_status()
+
+    # Return the parsed JSON
     return resp.json()
 
 def create_runsession_from_task_search(
@@ -220,8 +270,10 @@ def create_runsession_from_task_search(
 ) -> dict:
     """
     Create a RunSession from the tasks in `search_response`, filtering by `score_threshold`.
-    Then, generate a local shell script (`curl_script_filename`) with the curl command
-    that can replicate this request.
+    Generate a .sh file with the equivalent cURL command for debugging.
+
+    This version also ensures each slxName includes the workspace prefix
+    (i.e. `f"{rw_workspace}--"`) if it doesn't already.
 
     :param search_response: Dict from your "task-search" JSON
     :param api_token: platform.Secret wrapper around the token
@@ -238,18 +290,35 @@ def create_runsession_from_task_search(
     url = f"{rw_api_url}/workspaces/{rw_workspace}/runsessions"
 
     tasks = search_response.get("tasks", [])
-    # Build a map: slxName -> runRequest dict
     run_requests_map = {}
 
     for t in tasks:
+        # Skip if score below threshold
         if t.get("score", 0) < score_threshold:
             continue
 
+        # Old approach: from workspaceTask
         ws_task = t.get("workspaceTask", {})
-        slx = ws_task.get("slxName")
-        task_name = ws_task.get("unresolvedTitle")
+        old_slx = ws_task.get("slxShortName")
+        old_task_name = ws_task.get("unresolvedTitle")
+
+        # New approach: top-level keys
+        new_slx = t.get("slxShortName")
+        new_task_name = t.get("taskName") or t.get("resolvedTaskName")
+
+        # Decide final slx / task_name
+        slx = old_slx or new_slx
+        task_name = old_task_name or new_task_name
+
+        # Prepend workspace if missing
+        # e.g. if slx is "ob-grnsucsc1c-ns-health-0230f7f7"
+        # and workspace is "b-online-boutique",
+        # we convert it to "b-online-boutique--ob-grnsucsc1c-ns-health-0230f7f7"
+        if slx and not slx.startswith(f"{rw_workspace}--"):
+            slx = f"{rw_workspace}--{slx}"
+
+        # Skip if either is missing
         if not slx or not task_name:
-            # skip tasks if missing data
             continue
 
         if slx not in run_requests_map:
@@ -261,7 +330,7 @@ def create_runsession_from_task_search(
             }
         run_requests_map[slx]["taskTitles"].append(task_name)
 
-    # Convert map to list
+    # Convert to a list
     run_requests = list(run_requests_map.values())
 
     session_body = {
@@ -271,36 +340,27 @@ def create_runsession_from_task_search(
         "active": True
     }
 
-    # Prepare headers
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_token.value}"
     }
 
-    # # 1) Write out the curl command to a local file
-    # #    We'll inline the JSON. For multiline readability, we might keep it short
-    # #    or you can split it into a separate body.json file. This example does inline.
-    # json_str = json.dumps(session_body)
-    # curl_cmd = (
-    #     f"#!/bin/bash\n\n"
-    #     f"# This script replicates the request to create a RunSession.\n\n"
-    #     f"curl -X POST '{url}' \\\n"
-    #     f"  -H 'Content-Type: application/json' \\\n"
-    #     f"  -H 'Authorization: Bearer {api_token.value}' \\\n"
-    #     f"  -d '{json_str}'\n"
-    # )
+    # Build cURL for debugging
+    payload_json_str = json.dumps(session_body)
+    curl_cmd = (
+        f"curl -X POST '{url}' \\\n"
+        f"  -H 'Content-Type: application/json' \\\n"
+        f"  -H 'Authorization: Bearer $RW_API_TOKEN' \\\n"
+        f"  -d '{payload_json_str}'"
+    )
 
-    # with open(curl_script_filename, "w", encoding="utf-8") as f:
-    #     f.write(curl_cmd)
-    
-    # # Optionally make it executable
-    # os.chmod(curl_script_filename, 0o755)
+    robot_logger.info(f"Performing runsession creation POST:\n  URL: {url}\n  Payload: {session_body}", html=False)
+    robot_logger.info(f"Equivalent cURL:\n{curl_cmd}", html=False)
 
-    # 2) Make the actual POST request in Python
     resp = requests.post(url, json=session_body, headers=headers)
     resp.raise_for_status()
-    return resp.json()
 
+    return resp.json()
 
 def wait_for_runsession_tasks_to_complete(
     rw_workspace: str,

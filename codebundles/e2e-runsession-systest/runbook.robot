@@ -97,12 +97,13 @@ Suite Initialization
 Check Index Health for `${WORKSPACE_NAME}`
     [Documentation]    Checks the index status of the specified workspace 
     [Tags]             systest    index
-    ${index}=    RW.Systest.Get Workspace Index Status
+    ${index_status}    ${response}=    RW.Systest.Get Workspace Index Status
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    rw_api_url=${RW_API_URL}
     ...    api_token=${RW_API_TOKEN}
-    Add Pre To Report    ${index}
-    IF    "${index["status"]["indexingStatus"]}" != "green"
+    Add Pre To Report    ${index_status}
+    Add Pre To Report    ${response}
+    IF    '${index_status}' != "complete" or '${index_status}' != "complete"
         RW.Core.Add Issue    
         ...    severity=2
         ...    next_steps=Review the index health from the json
@@ -135,80 +136,90 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
 
     ${slx_scope}=    Create List
     FOR  ${slx}  IN  @{matched_scope_slxs}
-        Append To List    ${slx_scope}    ${slx["name"]}        
+        Append To List    ${slx_scope}    ${slx["shortName"]}        
     END
     Add To Report    Scoping Test to the following SLXs: ${slx_scope}
     
     ${validation_slxs}=    Create List
     FOR  ${slx}  IN  @{matched_validation_slxs}
-        Append To List    ${validation_slxs}    ${slx["name"]}        
+        Append To List    ${validation_slxs}    ${slx["shortName"]}        
     END
     Add To Report    Validation will check that the following SLXs are in the RunSession: ${validation_slxs}
 
-
-    # Get the list of suggested Tasks for the Runsession from the configured Query
-    ${search_results}=    RW.Systest.Perform Task Search
-    ...    rw_workspace=${WORKSPACE_NAME}
-    ...    rw_api_url=${RW_API_URL}
-    ...    api_token=${RW_API_TOKEN}
-    ...    query=${QUERY}
-    ...    slx_scope=${slx_scope}
-    ...    persona=${WORKSPACE_NAME}--${ASSISTANT_NAME}
-    Add Json To Report    ${search_results}
-
-    IF    "$search_results" == "{'tasks': [], 'links': [], 'owners': []}"
+    IF    ${slx_scope} == [] or ${validation_slxs} == []
         RW.Core.Add Issue    
-        ...    severity=1
-        ...    next_steps=Check Index Health for `${WORKSPACE_NAME}`
-        ...    actual=Search returned no results
-        ...    expected=Search should return at least one or more sets of tasks 
-        ...    title=Search returned no results for `${QUERY}` in `${WORKSPACE_NAME}` 
-        ...    reproduce_hint=Search `${QUERY}` in `${WORKSPACE_NAME}` in `${ENVIRONMENT_NAME}`
-        ...    details=Search results are empty. Scoped search to ${slx_scope}
-    END
+        ...    severity=3
+        ...    next_steps=Add the appropriate SLX Scope and SLX Validation Tags
+        ...    actual=No SLXs were found matching any configured tag
+        ...    expected=Scope and Validation SLXs must be found in the workspace by tag
+        ...    title=SLX Scope and Validation Tags not found in `${WORKSPACE_NAME}` 
+        ...    reproduce_hint=Query SLXs by tag.
+        ...    details=No SLXs found for scope or validation. Testing cannot proceed.
+    ELSE
+        # Get the list of suggested Tasks for the Runsession from the configured Query
+        ${search_results}=    RW.Systest.Perform Task Search
+        ...    rw_workspace=${WORKSPACE_NAME}
+        ...    rw_api_url=${RW_API_URL}
+        ...    api_token=${RW_API_TOKEN}
+        ...    query=${QUERY}
+        ...    slx_scope=${slx_scope}
+        ...    persona=${WORKSPACE_NAME}--${ASSISTANT_NAME}
+        Add Json To Report    ${search_results}
 
-    # Start the RunSession
-    ${runsession}=    RW.Systest.Create RunSession from Task Search
-    ...    search_response=${search_results}
-    ...    rw_workspace=${WORKSPACE_NAME}
-    ...    rw_api_url=${RW_API_URL}
-    ...    api_token=${RW_API_TOKEN}
-    ...    query=${QUERY}
-    ...    persona_shortname=${ASSISTANT_NAME}
-    ...    score_threshold=${TASK_SEARCH_CONFIDENCE}
+        IF    ${search_results} == {'tasks': [], 'links': [], 'owners': []} or ${search_results} == {'tasks': [], 'owners': []}            
+            RW.Core.Add Issue    
+            ...    severity=1
+            ...    next_steps=Check Index Health for `${WORKSPACE_NAME}`
+            ...    actual=Search returned no results
+            ...    expected=Search should return at least one or more sets of tasks 
+            ...    title=Search returned no results for `${QUERY}` in `${WORKSPACE_NAME}` 
+            ...    reproduce_hint=Search `${QUERY}` in `${WORKSPACE_NAME}` in `${ENVIRONMENT_NAME}`
+            ...    details=Search results are empty. Scoped search to ${slx_scope}
+        ELSE
+            # Start the RunSession
+            ${runsession}=    RW.Systest.Create RunSession from Task Search
+            ...    search_response=${search_results}
+            ...    rw_workspace=${WORKSPACE_NAME}
+            ...    rw_api_url=${RW_API_URL}
+            ...    api_token=${RW_API_TOKEN}
+            ...    query=${QUERY}
+            ...    persona_shortname=${ASSISTANT_NAME}
+            ...    score_threshold=${TASK_SEARCH_CONFIDENCE}
 
-    ${runsession_status}=    RW.Systest.Wait for RunSession Tasks to Complete
-    ...    rw_workspace=${WORKSPACE_NAME}
-    ...    runsession_id=${runsession["id"]}
-    ...    rw_api_url=${RW_API_URL}
-    ...    api_token=${RW_API_TOKEN}
-    ...    poll_interval=${RUNSESSION_POLL_INTERVAL}
-    ...    max_wait_seconds=${RUNSESSION_MAX_TIMEOUT}
-    Add Json To Report    ${runsession_status}
+            ${runsession_status}=    RW.Systest.Wait for RunSession Tasks to Complete
+            ...    rw_workspace=${WORKSPACE_NAME}
+            ...    runsession_id=${runsession["id"]}
+            ...    rw_api_url=${RW_API_URL}
+            ...    api_token=${RW_API_TOKEN}
+            ...    poll_interval=${RUNSESSION_POLL_INTERVAL}
+            ...    max_wait_seconds=${RUNSESSION_MAX_TIMEOUT}
+            Add Json To Report    ${runsession_status}
 
-    # Validate that the desired SLXs were visited in the RunSession
-    ${runsession_tasks}=    RW.Systest.Get Visited SLX and Tasks from RunSession
-    ...    runsession_data=${runsession_status}
-    Add Pre To Report    SLXs Visited in this Runsession:\n${runsession_tasks}
+            # Validate that the desired SLXs were visited in the RunSession
+            ${runsession_tasks}=    RW.Systest.Get Visited SLX and Tasks from RunSession
+            ...    runsession_data=${runsession_status}
+            Add Pre To Report    SLXs Visited in this Runsession:\n${runsession_tasks}
 
-    ${overlap}    Create List
-    FOR    ${item}    IN    @{validation_slxs}
-        IF    '$item' in '@runsession_tasks'
-            Append To List    ${overlap}    ${item}
+            ${overlap}    Create List
+            FOR    ${item}    IN    @{validation_slxs}
+                IF    '$item' in '@runsession_tasks'
+                    Append To List    ${overlap}    ${item}
+                END
+            END
+
+            Add Pre To Report     Desried SLXs visited in RunSession: ${overlap}
+            ${runsession_url}=    Set Variable    ${RW_API_URL}/workspaces/${WORKSPACE_NAME}/runsessions/${runsession["id"]}
+            Add Url To Report    ${runsession_url}
+
+            IF    $overlap == []
+                RW.Core.Add Issue    
+                ...    severity=2
+                ...    next_steps=Review [RunSession URL](${runsession_url})
+                ...    actual=Desired Validation SLX not visited in RunSession
+                ...    expected=Validation SLXs should be visited in RunSession
+                ...    title=RunSession Validation Failed for `${QUERY}` in `${WORKSPACE_NAME}`
+                ...    reproduce_hint=Search `${QUERY}` in `${WORKSPACE_NAME}` in `${ENVIRONMENT_NAME}`
+                ...    details=All tasks visited in RunSession:\n${runsession_tasks}
+            END
         END
-    END
-
-    Add Pre To Report     Desried SLXs visited in RunSession: ${overlap}
-    ${runsession_url}=    Set Variable    ${RW_API_URL}/workspaces/${WORKSPACE_NAME}/runsessions/${runsession["id"]}
-    Add Url To Report    ${runsession_url}
-
-    IF    $overlap == []
-        RW.Core.Add Issue    
-        ...    severity=2
-        ...    next_steps=Review [RunSession URL](${runsession_url})
-        ...    actual=Desired Validation SLX not visited in RunSession
-        ...    expected=Validation SLXs should be visited in RunSession
-        ...    title=RunSession Validation Failed for `${QUERY}` in `${WORKSPACE_NAME}`
-        ...    reproduce_hint=Search `${QUERY}` in `${WORKSPACE_NAME}` in `${ENVIRONMENT_NAME}`
-        ...    details=All tasks visited in RunSession:\n${runsession_tasks}
     END
