@@ -202,7 +202,7 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
 
             ${overlap}    Create List
             FOR    ${item}    IN    @{validation_slxs}
-                IF    '$item' in '@runsession_tasks'
+                IF    '${item}' in @{runsession_tasks} or '${WORKSPACE_NAME}--${item}' in @{runsession_tasks}
                     Append To List    ${overlap}    ${item}
                 END
             END
