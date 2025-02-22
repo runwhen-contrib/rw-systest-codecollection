@@ -87,6 +87,7 @@ Run E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
     ...    api_token=${RW_API_TOKEN}
     ...    query=${QUERY}
     ...    persona_shortname=${ASSISTANT_NAME}
+    ...    score_threshold=0.3
     ${runsession_status}=    RW.RunSession.Wait for RunSession Tasks to Complete
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    runsession_id=${runsession["id"]}
