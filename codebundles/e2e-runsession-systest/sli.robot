@@ -1,6 +1,6 @@
 *** Settings ***
 Metadata          Author           stewartshea
-Documentation     Run e2e RunSession Tests against onbline boutique resources 
+Documentation     Run e2e RunSession Tests against onbline boutique resources. Push a score between 0 and 1. 1 = healthy. If any tasks generate issues, this value is reduced. 
 Metadata          Supports         Systest   RunWhen
 Metadata          Display Name     E2E RunSession Systest
 
@@ -101,22 +101,17 @@ Check Index Health for `${WORKSPACE_NAME}`
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    rw_api_url=${RW_API_URL}
     ...    api_token=${RW_API_TOKEN}
-    Add Pre To Report    ${index_status}
-    Add Pre To Report    ${response}
-    IF    '${index_status}' != "complete" or '${index_status}' != "green"
-        RW.Core.Add Issue    
-        ...    severity=2
-        ...    next_steps=Review the index health from the json
-        ...    actual=Inx health is... not... green
-        ...    expected=Workspace index health should be green 
-        ...    title=Index status is unhealthy in `${WORKSPACE_NAME}` 
-        ...    reproduce_hint=cURL the index-status endpoint
-        ...    details=See the report details for index status. 
+    IF    "${index_status}" == "complete" or "${index_status}" == "green"
+        ${index_health_score}=    Set Variable    1
+    ELSE
+        ${index_health_score}=    Set Variable    0
     END   
+    Set Global Variable    ${index_health_score}    ${index_health_score}
 
 Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}` 
     [Documentation]    Validates a RunSession using the provided query in the specified workspace
     [Tags]             systest    runsession
+    ${e2e_runsession_validation_score}=    Set Variable    0
     ${scope_slx_tags}=    Evaluate    [{'name': pair.split(':')[0], 'value': pair.split(':')[1]} for pair in ${STARTING_SCOPE_SLX_TAGS}]
     ${validation_slx_tags}=    Evaluate    [{'name': pair.split(':')[0], 'value': pair.split(':')[1]} for pair in ${VALIDATION_SLX_TAGS}]
 
@@ -138,23 +133,14 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
     FOR  ${slx}  IN  @{matched_scope_slxs}
         Append To List    ${slx_scope}    ${slx["shortName"]}        
     END
-    Add To Report    Scoping Test to the following SLXs: ${slx_scope}
     
     ${validation_slxs}=    Create List
     FOR  ${slx}  IN  @{matched_validation_slxs}
         Append To List    ${validation_slxs}    ${slx["shortName"]}        
     END
-    Add To Report    Validation will check that the following SLXs are in the RunSession: ${validation_slxs}
 
     IF    ${slx_scope} == [] or ${validation_slxs} == []
-        RW.Core.Add Issue    
-        ...    severity=3
-        ...    next_steps=Add the appropriate SLX Scope and SLX Validation Tags
-        ...    actual=No SLXs were found matching any configured tag
-        ...    expected=Scope and Validation SLXs must be found in the workspace by tag
-        ...    title=SLX Scope and Validation Tags not found in `${WORKSPACE_NAME}` 
-        ...    reproduce_hint=Query SLXs by tag.
-        ...    details=No SLXs found for scope or validation. Testing cannot proceed.
+        Log    "Skipping tests due to empty scope"
     ELSE
         # Get the list of suggested Tasks for the Runsession from the configured Query
         ${search_results}=    RW.Systest.Perform Task Search
@@ -167,14 +153,7 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
         Add Json To Report    ${search_results}
 
         IF    ${search_results} == {'tasks': [], 'links': [], 'owners': []} or ${search_results} == {'tasks': [], 'owners': []}            
-            RW.Core.Add Issue    
-            ...    severity=1
-            ...    next_steps=Check Index Health for `${WORKSPACE_NAME}`
-            ...    actual=Search returned no results
-            ...    expected=Search should return at least one or more sets of tasks 
-            ...    title=Search returned no results for `${QUERY}` in `${WORKSPACE_NAME}` 
-            ...    reproduce_hint=Search `${QUERY}` in `${WORKSPACE_NAME}` in `${ENVIRONMENT_NAME}`
-            ...    details=Search results are empty. Scoped search to ${slx_scope}
+            Log    "Skipping runsession test due to empty task results"
         ELSE
             # Start the RunSession
             ${runsession}=    RW.Systest.Create RunSession from Task Search
@@ -198,7 +177,6 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
             # Validate that the desired SLXs were visited in the RunSession
             ${runsession_tasks}=    RW.Systest.Get Visited SLX and Tasks from RunSession
             ...    runsession_data=${runsession_status}
-            Add Pre To Report    SLXs Visited in this Runsession:\n${runsession_tasks}
 
             ${overlap}    Create List
             FOR    ${item}    IN    @{validation_slxs}
@@ -207,19 +185,17 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
                 END
             END
 
-            Add Pre To Report     Desried SLXs visited in RunSession: ${overlap}
             ${runsession_url}=    Set Variable    ${RW_API_URL}/workspaces/${WORKSPACE_NAME}/runsessions/${runsession["id"]}
-            Add Url To Report    ${runsession_url}
 
             IF    $overlap == []
-                RW.Core.Add Issue    
-                ...    severity=2
-                ...    next_steps=Review [RunSession URL](${runsession_url})
-                ...    actual=Desired Validation SLX not visited in RunSession
-                ...    expected=Validation SLXs should be visited in RunSession
-                ...    title=RunSession Validation Failed for `${QUERY}` in `${WORKSPACE_NAME}`
-                ...    reproduce_hint=Search `${QUERY}` in `${WORKSPACE_NAME}` in `${ENVIRONMENT_NAME}`
-                ...    details=All tasks visited in RunSession:\n${runsession_tasks}
+                ${e2e_runsession_validation_score}=    Set Variable    0
+            ELSE
+                ${e2e_runsession_validation_score}=    Set Variable    1
             END
         END
     END
+    Set Global Variable    ${e2e_runsession_validation_score}    ${e2e_runsession_validation_score}
+
+Generate E2E RunSession Health Score
+    ${score}=      Evaluate  (${index_health_score}+${e2e_runsession_validation_score})/2
+    RW.Core.Push Metric    ${score}
