@@ -21,7 +21,7 @@ Suite Initialization
     ...    type=string
     ...    description=The RunWhen API Token
     ...    pattern=\w*
-    ${RW_API_URL}=    RW.Core.Import User Variable    RW_API_URL
+    ${PAPI_URL}=    RW.Core.Import User Variable    PAPI_URL
     ...    type=string
     ...    description=PAPI Endpoint URL
     ...    pattern=\w*
@@ -81,7 +81,7 @@ Suite Initialization
     ...    pattern=\w*
     ...    example=300
     ...    default=600
-    Set Suite Variable    ${RW_API_URL}    ${RW_API_URL}
+    Set Suite Variable    ${PAPI_URL}    ${PAPI_URL}
     Set Suite Variable    ${ENVIRONMENT_NAME}    ${ENVIRONMENT_NAME}
     Set Suite Variable    ${WORKSPACE_NAME}    ${WORKSPACE_NAME}
     Set Suite Variable    ${QUERY}    ${QUERY}
@@ -99,7 +99,7 @@ Check Index Health for `${WORKSPACE_NAME}`
     [Tags]             systest    index
     ${index_status}    ${response}=    RW.Systest.Get Workspace Index Status
     ...    rw_workspace=${WORKSPACE_NAME}
-    ...    rw_api_url=${RW_API_URL}
+    ...    rw_api_url=${PAPI_URL}
     ...    api_token=${RW_API_TOKEN}
     Add Pre To Report    ${index_status}
     Add Pre To Report    ${response}
@@ -123,7 +123,7 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
     # Fetch the workspace SLX List
     ${workspace_slxs}=    RW.Systest.Get Workspace SLXs
     ...    rw_workspace=${WORKSPACE_NAME}
-    ...    rw_api_url=${RW_API_URL}
+    ...    rw_api_url=${PAPI_URL}
     ...    api_token=${RW_API_TOKEN}
 
     # Get each list of SLXs that match the configured tags    
@@ -159,7 +159,7 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
         # Get the list of suggested Tasks for the Runsession from the configured Query
         ${search_results}=    RW.Systest.Perform Task Search
         ...    rw_workspace=${WORKSPACE_NAME}
-        ...    rw_api_url=${RW_API_URL}
+        ...    rw_api_url=${PAPI_URL}
         ...    api_token=${RW_API_TOKEN}
         ...    query=${QUERY}
         ...    slx_scope=${slx_scope}
@@ -180,7 +180,7 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
             ${runsession}=    RW.Systest.Create RunSession from Task Search
             ...    search_response=${search_results}
             ...    rw_workspace=${WORKSPACE_NAME}
-            ...    rw_api_url=${RW_API_URL}
+            ...    rw_api_url=${PAPI_URL}
             ...    api_token=${RW_API_TOKEN}
             ...    query=${QUERY}
             ...    persona_shortname=${ASSISTANT_NAME}
@@ -189,7 +189,7 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
             ${runsession_status}=    RW.Systest.Wait for RunSession Tasks to Complete
             ...    rw_workspace=${WORKSPACE_NAME}
             ...    runsession_id=${runsession["id"]}
-            ...    rw_api_url=${RW_API_URL}
+            ...    rw_api_url=${PAPI_URL}
             ...    api_token=${RW_API_TOKEN}
             ...    poll_interval=${RUNSESSION_POLL_INTERVAL}
             ...    max_wait_seconds=${RUNSESSION_MAX_TIMEOUT}
@@ -208,7 +208,7 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
             END
 
             Add Pre To Report     Desried SLXs visited in RunSession: ${overlap}
-            ${runsession_url}=    Set Variable    ${RW_API_URL}/workspaces/${WORKSPACE_NAME}/runsessions/${runsession["id"]}
+            ${runsession_url}=    Set Variable    ${PAPI_URL}/workspaces/${WORKSPACE_NAME}/runsessions/${runsession["id"]}
             Add Url To Report    ${runsession_url}
 
             IF    $overlap == []
