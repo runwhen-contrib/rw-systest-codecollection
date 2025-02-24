@@ -55,14 +55,14 @@ Suite Initialization
     ...    type=string
     ...    description=A list of tags used to select SLX scope for the RunSession
     ...    pattern=\w*
-    ...    example=["systest:scope"]
-    ...    default=["systest:scope"]
+    ...    example='["systest:scope"]'
+    ...    default='["systest:scope"]'
     ${VALIDATION_SLX_TAGS}=    RW.Core.Import User Variable    VALIDATION_SLX_TAGS
     ...    type=string
     ...    description=A list of tags used to validate that specific SLXs were visited in the RunSession.
     ...    pattern=\w*
-    ...    example=["systest:validate"]
-    ...    default=["systest:validate"]
+    ...    example='["systest:validate"]'
+    ...    default='["systest:validate"]'
     ${TASK_SEARCH_CONFIDENCE}=    RW.Core.Import User Variable    TASK_SEARCH_CONFIDENCE
     ...    type=string
     ...    description=The search confidence threshold for running tasks. Expects a value between 0 and 1, representing a percentage.
@@ -101,9 +101,12 @@ Check Index Health for `${WORKSPACE_NAME}`
     ...    rw_workspace=${WORKSPACE_NAME}
     ...    rw_api_url=${PAPI_URL}
     ...    api_token=${RW_API_TOKEN}
-    Add Pre To Report    ${index_status}
-    Add Pre To Report    ${response}
-    IF    '${index_status}' != "complete" or '${index_status}' != "green"
+    IF    "${index_status}" == "complete" or "${index_status}" == "green"
+        Add Pre To Report    "Index is healthy, showing response: ${index_status}"
+        Add Pre To Report    "Full index response: ${response}"
+    ELSE
+        Add Pre To Report    "Index is not healthy, showing response: ${index_status}"
+        Add Pre To Report    "Full index response: ${response}"
         RW.Core.Add Issue    
         ...    severity=2
         ...    next_steps=Review the index health from the json
