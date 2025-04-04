@@ -141,7 +141,7 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
     FOR  ${slx}  IN  @{matched_scope_slxs}
         Append To List    ${slx_scope}    ${slx["shortName"]}        
     END
-    Add To Report    Scoping Test to the following SLXs: ${slx_scope}
+    Add Pre To Report    Scoping Test to the following SLXs: ${slx_scope}
     
     # A scope of a single SLX tends to present search issues. Add all SLXs from the same group if we only have one SLX.
     IF    len(@{slx_scope}) == 1
@@ -157,14 +157,14 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
         FOR    ${slx}    IN    @{nearby_slx_list}
             Append To List    ${slx_scope}    ${slx}
         END
-        Add To Report    Expanding scope to include the following SLXs: ${slx_scope}
+        Add Pre To Report    Expanding scope to include the following SLXs: ${slx_scope}
     END
         
     ${validation_slxs}=    Create List
     FOR  ${slx}  IN  @{matched_validation_slxs}
         Append To List    ${validation_slxs}    ${slx["shortName"]}        
     END
-    Add To Report    Validation will check that the following SLXs are in the RunSession: ${validation_slxs}
+    Add Pre To Report    Validation will check that the following SLXs are in the RunSession: ${validation_slxs}
 
     IF    ${slx_scope} == [] or ${validation_slxs} == []
         RW.Core.Add Issue    
@@ -227,7 +227,7 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
 
             Add Pre To Report     Desried SLXs visited in RunSession: ${overlap}
             ${runsession_url}=    Set Variable    ${PAPI_URL}/workspaces/${WORKSPACE_NAME}/runsessions/${runsession["id"]}
-            Add Url To Report    ${runsession_url}
+            Add to Report    [RunSession URL](${runsession_url})
 
             IF    $overlap == []
                 RW.Core.Add Issue    
