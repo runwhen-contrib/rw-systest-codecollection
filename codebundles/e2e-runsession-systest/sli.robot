@@ -43,8 +43,8 @@ Suite Initialization
     ...    type=string
     ...    description=The Query to send to the Engineering Assistant
     ...    pattern=\w*
-    ...    example=Cartservice is down
-    ...    default=Cartservice is down
+    ...    example="`Cartservice` is down"
+    ...    default="`Cartservice` is down"
     ${ASSISTANT_NAME}=    RW.Core.Import User Variable    ASSISTANT_NAME
     ...    type=string
     ...    description=The name of the engineering assistant to attach to the runsession
@@ -55,14 +55,14 @@ Suite Initialization
     ...    type=string
     ...    description=A list of tags used to select SLX scope for the RunSession
     ...    pattern=\w*
-    ...    example='["systest:scope"]'
-    ...    default='["systest:scope"]'
+    ...    example=["systest:scope"]
+    ...    default=["systest:scope"]
     ${VALIDATION_SLX_TAGS}=    RW.Core.Import User Variable    VALIDATION_SLX_TAGS
     ...    type=string
     ...    description=A list of tags used to validate that specific SLXs were visited in the RunSession.
     ...    pattern=\w*
-    ...    example='["systest:validate"]'
-    ...    default='["systest:validate"]'
+    ...    example=["systest:validate"]
+    ...    default=["systest:validate"]
     ${TASK_SEARCH_CONFIDENCE}=    RW.Core.Import User Variable    TASK_SEARCH_CONFIDENCE
     ...    type=string
     ...    description=The search confidence threshold for running tasks. Expects a value between 0 and 1, representing a percentage.
@@ -133,7 +133,23 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
     FOR  ${slx}  IN  @{matched_scope_slxs}
         Append To List    ${slx_scope}    ${slx["shortName"]}        
     END
-    
+
+    # A scope of a single SLX tends to present search issues. Add all SLXs from the same group if we only have one SLX.
+    IF    len(@{slx_scope}) == 1
+        ${config}=    RW.Systest.Get Workspace Config
+        ...    rw_workspace=${WORKSPACE_NAME}
+        ...    rw_api_url=${PAPI_URL}
+        ...    api_token=${RW_API_TOKEN}
+
+        ${nearby_slxs}=    RW.Systest.Get Nearby Slxs
+        ...    workspace_config=${config}
+        ...    slx_name=${slx_scope[0]}
+        @{nearby_slx_list}    Convert To List    ${nearby_slxs}
+        FOR    ${slx}    IN    @{nearby_slx_list}
+            Append To List    ${slx_scope}    ${slx}
+        END
+    END
+
     ${validation_slxs}=    Create List
     FOR  ${slx}  IN  @{matched_validation_slxs}
         Append To List    ${validation_slxs}    ${slx["shortName"]}        
@@ -150,7 +166,6 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
         ...    query=${QUERY}
         ...    slx_scope=${slx_scope}
         ...    persona=${WORKSPACE_NAME}--${ASSISTANT_NAME}
-        Add Json To Report    ${search_results}
 
         IF    ${search_results} == {'tasks': [], 'links': [], 'owners': []} or ${search_results} == {'tasks': [], 'owners': []}            
             Log    "Skipping runsession test due to empty task results"
@@ -172,7 +187,6 @@ Validate E2E RunSession `${QUERY}` in `${WORKSPACE_NAME}`
             ...    api_token=${RW_API_TOKEN}
             ...    poll_interval=${RUNSESSION_POLL_INTERVAL}
             ...    max_wait_seconds=${RUNSESSION_MAX_TIMEOUT}
-            Add Json To Report    ${runsession_status}
 
             # Validate that the desired SLXs were visited in the RunSession
             ${runsession_tasks}=    RW.Systest.Get Visited SLX and Tasks from RunSession

@@ -160,6 +160,66 @@ def get_slxs_with_tag(
         platform_logger.exception(e)
         return []
 
+def get_workspace_config(
+    rw_api_url: str = "https://papi.beta.runwhen.com/api/v3",
+    api_token: platform.Secret = None,
+    rw_workspace: str = "my-workspace",
+): 
+    """Get the workspace.yaml (in json format)
+
+    Returns: 
+        workspace.yaml contents in json format
+    """
+    headers = {
+        "Content-Type": "application/json", 
+        "Authorization": f"Bearer {api_token.value}"
+        }
+    url = f"{rw_api_url}/workspaces/{rw_workspace}/branches/main/workspace.yaml?format=json"
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status() 
+        workspace = response.json()  
+        workspace_config = workspace.get("asJson", [])
+
+        print(workspace_config)
+        return workspace_config
+    except (
+        requests.ConnectTimeout,
+        requests.ConnectionError,
+        json.JSONDecodeError,
+    ) as e:
+        warning_log(
+            f"Exception while trying to get workspace configuration for workspace {rw_workspace}: {e}",
+            str(e),
+            str(type(e)),
+        )
+        platform_logger.exception(e)
+        return []
+
+def get_nearby_slxs(workspace_config: dict, slx_name: str) -> list:
+    """
+    Given a RunWhen workspace config (in dictionary form) and the short name
+    of a specific SLX (e.g. "rc-ob-grnsucsc1c-redis-health-a7c33f4e"),
+    return all SLXs in the same slxGroup.
+
+    :param workspace_config: Dict representing workspace.yaml as JSON.
+    :param slx_name: The SLX short name to look for.
+    :return: A list of SLX short names in the same slxGroup as `slx_name`.
+             If no group is found containing `slx_name`, returns an empty list.
+    """
+    # Navigate to the "slxGroups" array under "spec".
+    slx_groups = workspace_config.get("spec", {}).get("slxGroups", [])
+
+    for group in slx_groups:
+        slxs = group.get("slxs", [])
+        if slx_name in slxs:
+            # Return the entire list of slxs in this group.
+            return slxs
+
+    # If we don't find the slx in any group, return an empty list.
+    return []
+
 def get_workspace_index_status(
     rw_api_url: str = "https://papi.beta.runwhen.com/api/v3",
     api_token: platform.Secret = None,
@@ -269,70 +329,90 @@ def create_runsession_from_task_search(
     curl_script_filename: str = "create_runsession_curl.sh"
 ) -> dict:
     """
-    Create a RunSession from the tasks in `search_response`, filtering by `score_threshold`.
-    Generate a .sh file with the equivalent cURL command for debugging.
+    Create a RunSession from tasks in `search_response`, filtering by `score_threshold`.
 
-    This version also ensures each slxName includes the workspace prefix
-    (i.e. `f"{rw_workspace}--"`) if it doesn't already.
+    This version detects which structure is present:
+      - New structure (workspaceTask + extra fields).
+      - Old structure (top-level fields like slxShortName, taskName, etc.).
 
-    :param search_response: Dict from your "task-search" JSON
-    :param api_token: platform.Secret wrapper around the token
-    :param rw_api_url: Base URL for the RunWhen API
+    :param search_response: Dict containing the "tasks" array in either structure.
+    :param api_token: platform.Secret (token for auth)
+    :param rw_api_url: Base URL for RunWhen
     :param rw_workspace: Short name of the workspace
     :param persona_shortname: Persona for the runsession
     :param query: The user query that led to these tasks
     :param score_threshold: Minimum score for tasks to include
-    :param curl_script_filename: Name of the .sh file to write the curl command into
-    :return: The JSON response from creating the RunSession
+    :param curl_script_filename: Name of the .sh file to write the curl command
+    :return: JSON response from creating the RunSession
     """
-
-    # Endpoint for creating a runsession
     url = f"{rw_api_url}/workspaces/{rw_workspace}/runsessions"
 
     tasks = search_response.get("tasks", [])
+    if not tasks:
+        robot_logger.info("No tasks found in search_response.")
+        return {}
+
+    # --------------------------------------------------
+    # 1) Detect which structure is being used
+    # --------------------------------------------------
+    first_task = tasks[0]
+    # If it has workspaceTask, call that the NEW structure
+    if "workspaceTask" in first_task:
+        robot_logger.info("Detected **new** structure (workspaceTask).")
+        is_new_structure = True
+    else:
+        robot_logger.info("Detected **old** structure (top-level slxShortName/taskName).")
+        is_new_structure = False
+
     run_requests_map = {}
 
     for t in tasks:
-        # Skip if score below threshold
+        # --------------------------------------------------
+        # 2) Skip if score below threshold
+        # --------------------------------------------------
         if t.get("score", 0) < score_threshold:
             continue
 
-        # Old approach: from workspaceTask
-        ws_task = t.get("workspaceTask", {})
-        old_slx = ws_task.get("slxShortName")
-        old_task_name = ws_task.get("unresolvedTitle")
+        # --------------------------------------------------
+        # 3) Extract fields from the correct location
+        # --------------------------------------------------
+        if is_new_structure:
+            # The "new" structure has everything in workspaceTask
+            ws_task = t.get("workspaceTask", {})
+            # The keys might be slxShortName/slxName, plus unresolvedTitle/resolvedTitle
+            slx_candidate = ws_task.get("slxShortName") or ws_task.get("slxName")
+            task_candidate = ws_task.get("unresolvedTitle") or ws_task.get("resolvedTitle")
+        else:
+            # The "old" structure uses top-level fields
+            slx_candidate = t.get("slxShortName") or t.get("slxName")
+            task_candidate = t.get("taskName") or t.get("resolvedTaskName")
 
-        # New approach: top-level keys
-        new_slx = t.get("slxShortName")
-        new_task_name = t.get("taskName") or t.get("resolvedTaskName")
+        # --------------------------------------------------
+        # 4) Prepend workspace prefix if missing
+        # --------------------------------------------------
+        if slx_candidate and not slx_candidate.startswith(f"{rw_workspace}--"):
+            slx_candidate = f"{rw_workspace}--{slx_candidate}"
 
-        # Decide final slx / task_name
-        slx = old_slx or new_slx
-        task_name = old_task_name or new_task_name
-
-        # Prepend workspace if missing
-        # e.g. if slx is "ob-grnsucsc1c-ns-health-0230f7f7"
-        # and workspace is "b-online-boutique",
-        # we convert it to "b-online-boutique--ob-grnsucsc1c-ns-health-0230f7f7"
-        if slx and not slx.startswith(f"{rw_workspace}--"):
-            slx = f"{rw_workspace}--{slx}"
-
-        # Skip if either is missing
-        if not slx or not task_name:
+        # Skip if we don't have enough info
+        if not slx_candidate or not task_candidate:
             continue
 
-        if slx not in run_requests_map:
-            run_requests_map[slx] = {
-                "slxName": slx,
+        # --------------------------------------------------
+        # 5) Accumulate run requests by slx
+        # --------------------------------------------------
+        if slx_candidate not in run_requests_map:
+            run_requests_map[slx_candidate] = {
+                "slxName": slx_candidate,
                 "taskTitles": [],
                 "fromSearchQuery": query,
                 "fromIssue": None
             }
-        run_requests_map[slx]["taskTitles"].append(task_name)
+        run_requests_map[slx_candidate]["taskTitles"].append(task_candidate)
 
-    # Convert to a list
+    # --------------------------------------------------
+    # 6) Build final payload
+    # --------------------------------------------------
     run_requests = list(run_requests_map.values())
-
     session_body = {
         "generateName": "automated-systest",
         "runRequests": run_requests,
@@ -345,7 +425,9 @@ def create_runsession_from_task_search(
         "Authorization": f"Bearer {api_token.value}"
     }
 
-    # Build cURL for debugging
+    # --------------------------------------------------
+    # 7) Debugging: Build cURL command
+    # --------------------------------------------------
     payload_json_str = json.dumps(session_body)
     curl_cmd = (
         f"curl -X POST '{url}' \\\n"
@@ -353,14 +435,19 @@ def create_runsession_from_task_search(
         f"  -H 'Authorization: Bearer $RW_API_TOKEN' \\\n"
         f"  -d '{payload_json_str}'"
     )
-
-    robot_logger.info(f"Performing runsession creation POST:\n  URL: {url}\n  Payload: {session_body}", html=False)
+    robot_logger.info(
+        f"Performing runsession creation POST:\n  URL: {url}\n  Payload: {session_body}",
+        html=False
+    )
     robot_logger.info(f"Equivalent cURL:\n{curl_cmd}", html=False)
 
+    # --------------------------------------------------
+    # 8) POST & return the RunSession response
+    # --------------------------------------------------
     resp = requests.post(url, json=session_body, headers=headers)
     resp.raise_for_status()
-
     return resp.json()
+
 
 def wait_for_runsession_tasks_to_complete(
     rw_workspace: str,
