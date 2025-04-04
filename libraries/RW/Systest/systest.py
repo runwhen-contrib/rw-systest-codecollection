@@ -719,3 +719,4 @@ def get_most_referenced_resource(data: str):
     most_common_resource = keyword_counter.most_common(1)
     
     return most_common_resource[0][0] if most_common_resource else "No keywords found"
+    
