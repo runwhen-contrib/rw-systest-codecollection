@@ -41,29 +41,53 @@ def get_workspace_slxs(
     rw_workspace: str = "my-workspace"
 ) -> str:
     """
-    Get all SLXs in a RunWhen workspace.
+    Get *all* SLXs in a RunWhen workspace, transparently handling pagination.
 
-    :param rw_api_url: Base URL to the RunWhen API.
-    :param api_token: A platform.Secret token object containing your bearer token.
-    :param rw_workspace: The short name of the workspace.
-    :return: A JSON string containing all SLXs (the raw response from the API).
+    Returns:
+        JSON string of the combined payload:
+        {
+          "count":  <total>,
+          "next":   null,
+          "previous": null,
+          "results": [ …all SLXs… ]
+        }
+        On error, the empty string "" (unchanged behaviour).
     """
-    url = f"{rw_api_url}/workspaces/{rw_workspace}/slxs"
+    url     = f"{rw_api_url}/workspaces/{rw_workspace}/slxs"
     headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_token.value}"
+        "Content-Type":  "application/json",
+        "Authorization": f"Bearer {api_token.value}",
     }
 
+    all_results = []
+    total_count = None
+
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        # Return the raw JSON string so you can parse it later or pass around as needed
-        return response.text
-    except (requests.ConnectTimeout, requests.ConnectionError, json.JSONDecodeError) as e:
+        while url:
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+
+            payload      = response.json()          # one page
+            total_count  = payload.get("count", 0)  # first page value is fine
+            all_results += payload.get("results", [])
+
+            url = payload.get("next")               # None on last page
+
+        combined = {
+            "count":    len(all_results) if total_count is None else total_count,
+            "next":     None,
+            "previous": None,
+            "results":  all_results,
+        }
+        return json.dumps(combined)
+
+    except (requests.ConnectTimeout,
+            requests.ConnectionError,
+            json.JSONDecodeError) as e:
         warning_log(
             f"Exception while fetching SLXs in workspace '{rw_workspace}': {e}",
             str(e),
-            str(type(e))
+            str(type(e)),
         )
         platform_logger.exception(e)
         return ""
